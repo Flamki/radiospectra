@@ -2,8 +2,18 @@ from unittest import mock
 
 import matplotlib.pyplot as plt
 import numpy as np
+from ndcube import NDCube
 
 import astropy.units as u
+
+from radiospectra.spectrogram.spectrogrambase import GenericSpectrogram
+
+
+def _extra_coord_names(spectrogram):
+    names = []
+    for _, table_coord in spectrogram.extra_coords._lookup_tables:
+        names.extend(table_coord.names)
+    return set(names)
 
 
 def test_plot_mixed_frequency_units_on_same_axes(make_spectrogram):
@@ -77,18 +87,16 @@ def test_plotim_mixed_frequency_units_on_same_axes(make_spectrogram):
 
 def test_plot_with_quantity_data(make_spectrogram):
     """Test plotting when data is an astropy Quantity."""
-    rad = make_spectrogram(np.array([10, 20, 30, 40]) * u.kHz)
-    rad.data = rad.data * u.ct
+    data = np.arange(16).reshape(4, 4) * u.ct
+    rad = make_spectrogram(np.array([10, 20, 30, 40]) * u.kHz, data=data)
     rad.plot()
     plt.close("all")
 
 
 def test_plot_with_shape_mismatch(make_spectrogram):
     """Test plotting branch when data shape doesn't exactly match time/freq arrays."""
-    rad = make_spectrogram(np.array([10, 20, 30, 40]) * u.kHz)
-    # times/freqs are length 4, data shape (4, 4) matches.
-    # make data (5, 5) to trigger the `else` branch (data[:-1, :-1])
-    rad.data = np.zeros((5, 5))
+    # times/freqs are length 4, so a (5, 5) array triggers the data[:-1, :-1] path.
+    rad = make_spectrogram(np.array([10, 20, 30, 40]) * u.kHz, data=np.zeros((5, 5)))
     rad.plot()
     plt.close("all")
 
@@ -135,3 +143,22 @@ def test_plotim_uses_time_support_for_datetime_conversion(make_spectrogram):
     np.testing.assert_allclose(x_values, expected_tt)
     np.testing.assert_allclose(y_values, spec.frequencies.value)
     np.testing.assert_allclose(image, spec.data)
+
+
+def test_generic_spectrogram_is_ndcube(make_spectrogram):
+    spec = make_spectrogram(np.linspace(10, 40, 4) * u.MHz)
+    assert isinstance(spec, NDCube)
+
+
+def test_generic_spectrogram_registers_extra_coords(make_spectrogram):
+    spec = make_spectrogram(np.array([10, 20, 30, 40]) * u.kHz)
+    assert _extra_coord_names(spec) == {"time", "frequency"}
+
+
+def test_numeric_time_without_start_time_not_registered_as_extra_coord():
+    meta = {
+        "times": np.arange(4),
+        "freqs": np.arange(4) * u.kHz,
+    }
+    spec = GenericSpectrogram(np.arange(16).reshape(4, 4), meta)
+    assert _extra_coord_names(spec) == {"frequency"}
